@@ -41,18 +41,18 @@ If you already have a file, use the optional CSV import section. The CSV can use
 Use **Download sample student CSV** if you want to test the upload flow without
 using real student data.
 
-Use the form preview to confirm the questions staff intend to send. The app
-prepares a staff-send package: form template, recipient list, email text, and
-short send steps. Staff build/send the Google Form manually through normal
-Gmail/Outlook workflows.
+Use the finalized Qualtrics student survey. In the survey invitation or survey
+instructions, tell students that selecting at least 3 genuine faculty preferences
+improves schedule flexibility, even though the app can accept as few as 1
+requested meeting.
 
-Download the student form template CSV if you are building the Google Form
-manually. After students respond, export the response Sheet as CSV and upload it
-under **Import student responses**. The app will create downloadable
-`preferences.csv` and `student_interests.csv` files.
+After students respond, export the Qualtrics responses as CSV and upload it
+under **Import student Qualtrics responses**. The app will create downloadable
+`preferences.csv`, `students.csv`, and `student_availability.csv` files.
 
-If the app creates the Google Form for you, open the form after sending and link
-the Responses tab to a Google Sheet before collecting responses.
+The student survey does not need a separate email question. For real Qualtrics
+mailings, the exported `RecipientEmail` column carries the email address staff
+can use later when sending individual schedules.
 
 ### 3. Load faculty availability
 
@@ -75,13 +75,11 @@ F01,D1-S1
 F01,D1-S2
 ```
 
-Download the faculty availability form template CSV if you are building the
-Google Form manually. After faculty respond, export the response Sheet as CSV and
-upload it under **Import faculty responses**. The app will create downloadable
-`availability.csv`.
-
-If the app creates the Google Form for you, open the form after sending and link
-the Responses tab to a Google Sheet before collecting responses.
+Use the finalized Qualtrics faculty survey. If possible, upload the student
+Qualtrics CSV before the faculty CSV so the app can reuse the exact faculty list
+from the student ranking question. After faculty respond, export the Qualtrics
+responses as CSV and upload it under **Import faculty Qualtrics responses**. The
+app will create downloadable `availability.csv`.
 
 Faculty response parsing requires faculty IDs. When you use the direct-entry
 table, the app creates those IDs automatically.
@@ -102,8 +100,16 @@ The app provides sample scheduler CSVs in this section. Download those files if
 you want to test the collected-data workflow exactly as staff will use it.
 
 If you already parsed student and faculty responses in the current app session,
-click **Use parsed response data from this session** instead of re-uploading the
-three files.
+leave **Use parsed Qualtrics response data from this session** checked instead
+of downloading and re-uploading the solver-ready files.
+
+For direct CSV scheduling, upload:
+
+- `faculty.csv`
+- `availability.csv`
+- `preferences.csv`
+- optional `students.csv`
+- optional `student_availability.csv`
 
 The app checks the files before solving. Red errors must be fixed before the
 schedule can run. Yellow warnings are allowed, but staff should review them
@@ -134,7 +140,7 @@ Staff can:
 - unlock a meeting
 - remove an unlocked meeting
 - manually add a meeting if the student and faculty do not already have a
-  conflict in that time slot
+  conflict in that time slot and both marked the slot as available
 
 Manual additions are locked by default. This version does not rerun the optimizer
 around locked meetings; it is intended for small final corrections.
@@ -173,6 +179,11 @@ for more ranked faculty if possible.
 
 Faculty without available slots cannot be scheduled, even if many students rank
 them highly.
+
+### Students with no usable availability
+
+Students without any parsed time slots cannot be scheduled. Check the Qualtrics
+time availability answers first.
 
 ## Safety expectations
 

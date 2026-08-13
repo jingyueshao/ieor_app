@@ -24,7 +24,16 @@ class ValidationReport:
         return not self.errors
 
 
-def validate_solver_inputs(faculty, availability, preferences, grid, min_preferences=None, students=None, cfg=DEFAULT):
+def validate_solver_inputs(
+    faculty,
+    availability,
+    preferences,
+    grid,
+    min_preferences=None,
+    students=None,
+    cfg=DEFAULT,
+    student_availability=None,
+):
     report = ValidationReport()
     if min_preferences is None:
         min_preferences = cfg.minimum_ranked_faculty_threshold
@@ -37,6 +46,8 @@ def validate_solver_inputs(faculty, availability, preferences, grid, min_prefere
     _require_columns(report, availability, "availability.csv", ["faculty_id", "slot_id"])
     _require_columns(report, preferences, "preferences.csv", ["student_id", "faculty_id", "rank"])
     _require_columns(report, grid, "visit-day slots", ["slot_id", "day", "start_time", "end_time"])
+    if student_availability is not None and not getattr(student_availability, "empty", True):
+        _require_columns(report, student_availability, "student_availability.csv", ["student_id", "slot_id"])
     if report.errors:
         return report
 
@@ -44,11 +55,21 @@ def validate_solver_inputs(faculty, availability, preferences, grid, min_prefere
     availability = _clean_ids(availability, ["faculty_id", "slot_id"])
     preferences = _clean_ids(preferences, ["student_id", "faculty_id"])
     grid = _clean_ids(grid, ["slot_id"])
+    if student_availability is not None and not getattr(student_availability, "empty", True):
+        student_availability = _clean_ids(student_availability, ["student_id", "slot_id"])
 
     _duplicates(report, faculty, "faculty.csv", "faculty_id", "faculty IDs")
     _duplicates(report, grid, "visit-day slots", "slot_id", "slot IDs")
     _duplicates(report, preferences, "preferences.csv", ["student_id", "faculty_id"], "student/faculty pairs")
     _duplicates(report, availability, "availability.csv", ["faculty_id", "slot_id"], "faculty/slot rows")
+    if student_availability is not None and not getattr(student_availability, "empty", True):
+        _duplicates(
+            report,
+            student_availability,
+            "student_availability.csv",
+            ["student_id", "slot_id"],
+            "student/slot rows",
+        )
 
     faculty_ids = set(faculty["faculty_id"])
     slot_ids = set(grid["slot_id"])
@@ -75,6 +96,8 @@ def validate_solver_inputs(faculty, availability, preferences, grid, min_prefere
             "availability.csv refers to slot IDs that are not in the visit-day setup: "
             + _preview(unknown_avail_slots)
         )
+
+    _validate_student_availability(report, student_availability, preferences, slot_ids)
 
     ranks = pd.to_numeric(preferences["rank"], errors="coerce")
     if ranks.isna().any():
@@ -134,6 +157,36 @@ def validate_solver_inputs(faculty, availability, preferences, grid, min_prefere
             f"{len(faculty_ids)} faculty, {len(slot_ids)} meeting slot(s)."
         )
     return report
+
+
+def _validate_student_availability(report, student_availability, preferences, slot_ids):
+    if student_availability is None or getattr(student_availability, "empty", True):
+        report.info.append("No student availability file loaded; assuming students are available for all visit-day slots.")
+        return
+
+    students_with_prefs = set(preferences["student_id"].astype(str).str.strip())
+    avail_students = set(student_availability["student_id"].astype(str).str.strip())
+    avail_slots = set(student_availability["slot_id"].astype(str).str.strip())
+
+    unknown_students = sorted(avail_students - students_with_prefs)
+    unknown_slots = sorted(avail_slots - set(slot_ids))
+    if unknown_students:
+        report.warnings.append(
+            "student_availability.csv includes student IDs with no preferences: "
+            + _preview(unknown_students)
+        )
+    if unknown_slots:
+        report.errors.append(
+            "student_availability.csv refers to slot IDs that are not in the visit-day setup: "
+            + _preview(unknown_slots)
+        )
+
+    no_availability = sorted(students_with_prefs - avail_students)
+    if no_availability:
+        report.warnings.append(
+            "These student(s) have no available time slots and cannot be scheduled: "
+            + _preview(no_availability)
+        )
 
 
 def _validate_student_requests(report, students, preferences, grid, cfg):

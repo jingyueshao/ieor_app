@@ -25,13 +25,23 @@ from config import Config, DEFAULT
 from student_metrics import student_request_table
 
 
-def solve(faculty, availability, preferences, grid, cfg: Config = DEFAULT, student_requests=None):
+def solve(
+    faculty,
+    availability,
+    preferences,
+    grid,
+    cfg: Config = DEFAULT,
+    student_requests=None,
+    student_availability=None,
+):
     slots = grid["slot_id"].tolist()
     num_slots = len(slots)
     
     avail = defaultdict(set)
     for _, r in availability.iterrows():
         avail[r["faculty_id"]].add(r["slot_id"])
+
+    student_avail = _student_availability_map(preferences, grid, student_availability)
 
     # convex rank value: value(rank) = round(rank_base * rank_decay^(rank-1)).
     # Tracks raw values per student-faculty pair and groups them by student to calculate individual V_max.
@@ -50,7 +60,7 @@ def solve(faculty, availability, preferences, grid, cfg: Config = DEFAULT, stude
     x = {}
     for (sid, fid), val in pref_val.items():
         for t in slots:
-            if t in avail[fid]:
+            if t in avail[fid] and t in student_avail[str(sid)]:
                 x[(sid, fid, t)] = m.NewBoolVar(f"x_{sid}_{fid}_{t}")
 
     # faculty / student slot constraints
@@ -69,7 +79,7 @@ def solve(faculty, availability, preferences, grid, cfg: Config = DEFAULT, stude
     for vs in pair_vars.values():
         m.AddAtMostOne(vs)   # a pair meets at most once
 
-    requests = student_request_table(preferences, grid, student_requests, cfg)
+    requests = student_request_table(preferences, grid, student_requests, cfg, student_availability)
     effective_max = dict(zip(requests["student_id"], requests["effective_max_meetings"]))
     for sid in students:
         vars_for_student = [
@@ -104,8 +114,10 @@ def solve(faculty, availability, preferences, grid, cfg: Config = DEFAULT, stude
         # Sort their preference values descending to find their absolute best possible outcomes
         sorted_vals = sorted(student_prefs[sid], reverse=True)
         
-        # Max meetings a student can physically have is bounded by the total time slots available
-        max_possible_meetings = min(len(sorted_vals), num_slots)
+        max_possible_meetings = min(
+            len(sorted_vals),
+            effective_max.get(str(sid), cfg.default_max_meetings_requested),
+        )
         v_max_s = sum(sorted_vals[:max_possible_meetings])
         
         # Apply fairness constraint only to active students with valid preference metrics
@@ -135,3 +147,21 @@ def solve(faculty, availability, preferences, grid, cfg: Config = DEFAULT, stude
                 assignments.append({"student_id": sid, "faculty_id": fid, "slot_id": t})
 
     return pd.DataFrame(assignments), solver.StatusName(status), solver.ObjectiveValue()
+
+
+def _student_availability_map(preferences, grid, student_availability):
+    slots = set(grid["slot_id"].astype(str).tolist())
+    students = preferences["student_id"].astype(str).unique().tolist()
+    if student_availability is None or getattr(student_availability, "empty", True):
+        return {sid: slots for sid in students}
+
+    out = {sid: set() for sid in students}
+    clean = student_availability.copy()
+    clean["student_id"] = clean["student_id"].astype(str).str.strip()
+    clean["slot_id"] = clean["slot_id"].astype(str).str.strip()
+    for _, row in clean.iterrows():
+        sid = row["student_id"]
+        slot_id = row["slot_id"]
+        if sid in out and slot_id in slots:
+            out[sid].add(slot_id)
+    return out

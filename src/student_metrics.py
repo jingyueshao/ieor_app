@@ -8,7 +8,7 @@ from config import DEFAULT
 MAX_COL = "max_meetings_requested"
 
 
-def student_request_table(preferences, grid, students=None, cfg=DEFAULT):
+def student_request_table(preferences, grid, students=None, cfg=DEFAULT, student_availability=None):
     """Return one row per student with requested/effective max meeting counts."""
     student_ids = pd.Index(preferences["student_id"].astype(str).unique(), name="student_id")
     ranked = (
@@ -20,23 +20,24 @@ def student_request_table(preferences, grid, students=None, cfg=DEFAULT):
         .astype(int)
     )
     requested = _requested_map(student_ids, students, cfg)
-    available_slots = len(grid)
+    available_slots = _student_available_slot_counts(student_ids, grid, student_availability)
 
     out = pd.DataFrame({
         "student_id": student_ids,
         MAX_COL: [requested[sid] for sid in student_ids],
         "ranked_faculty": ranked.values,
+        "available_slots": [available_slots[sid] for sid in student_ids],
     })
     out["effective_max_meetings"] = out.apply(
-        lambda r: int(max(0, min(r[MAX_COL], r["ranked_faculty"], available_slots))),
+        lambda r: int(max(0, min(r[MAX_COL], r["ranked_faculty"], r["available_slots"]))),
         axis=1,
     )
     return out
 
 
-def student_satisfaction_table(assignments, preferences, grid, students=None, cfg=DEFAULT):
+def student_satisfaction_table(assignments, preferences, grid, students=None, cfg=DEFAULT, student_availability=None):
     """Return normalized satisfaction and meeting fulfillment per student."""
-    req = student_request_table(preferences, grid, students, cfg)
+    req = student_request_table(preferences, grid, students, cfg, student_availability)
     prefs = preferences.copy()
     prefs["student_id"] = prefs["student_id"].astype(str)
     prefs["rank_value"] = prefs["rank"].apply(lambda rank: rank_value(rank, cfg))
@@ -91,6 +92,22 @@ def _requested_map(student_ids, students, cfg):
         if sid in requested:
             requested[sid] = _clean_positive_int(row.get(MAX_COL), default)
     return requested
+
+
+def _student_available_slot_counts(student_ids, grid, student_availability):
+    default = len(grid)
+    counts = {sid: default for sid in student_ids}
+    if student_availability is None or getattr(student_availability, "empty", True):
+        return counts
+    valid_slots = set(grid["slot_id"].astype(str).str.strip())
+    clean = student_availability.copy()
+    clean["student_id"] = clean["student_id"].astype(str).str.strip()
+    clean["slot_id"] = clean["slot_id"].astype(str).str.strip()
+    clean = clean[clean["slot_id"].isin(valid_slots)].drop_duplicates(["student_id", "slot_id"])
+    actual = clean.groupby("student_id").size().to_dict()
+    for sid in counts:
+        counts[sid] = int(actual.get(sid, 0))
+    return counts
 
 
 def _clean_positive_int(value, default):

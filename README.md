@@ -15,18 +15,20 @@ the final schedules.
 2. Enter prospective student names/emails directly, or import an optional CSV,
    set each student's max meetings requested, then preview the student
    preference form.
-3. Download form templates, recipient lists, and email text for staff to send manually.
-4. Enter faculty names/emails directly, preview the faculty availability form,
-   and upload exported faculty response CSVs.
+3. Use the finalized Qualtrics student survey, then upload the exported student
+   response CSV. The app parses requested meeting counts, ranked faculty, and
+   daily time availability.
+4. Enter faculty names/emails directly, use the finalized Qualtrics faculty
+   survey, and upload the exported faculty response CSV.
 5. Build schedules from demo data, parsed session data, or uploaded CSVs.
 6. Review validation messages before solving.
 7. Review schedule diagnostics after solving.
 8. Download master, student, faculty, and email-ready exports.
 
 The intake workflow is semi-automated and staff-controlled. The app prepares
-Google Form templates, recipient lists, and email text, but staff send emails
-manually through Gmail/Outlook and upload exported response CSVs after forms are
-collected. This avoids Google Cloud/OAuth setup and keeps handoff simpler.
+Qualtrics surveys, recipient lists, and email text, but staff send emails
+manually through Gmail/Outlook and upload exported response CSVs after surveys
+are collected. This avoids API setup and keeps handoff simpler.
 
 ## Run locally
 
@@ -49,7 +51,8 @@ pytest
 
 ## Input schemas
 
-For the scheduler, the collected-data path expects three CSV files.
+For the scheduler, the collected-data path expects three required CSV files and
+one optional student availability file.
 For small groups, the intake tabs use editable tables so staff can type names
 and emails directly. Sample files are still available in `sample_data/` and
 through optional in-app download buttons.
@@ -96,7 +99,20 @@ S02,3
 
 If omitted, `max_meetings_requested` defaults to 4. The effective maximum used by
 the optimizer is the smaller of the requested maximum, the number of ranked
-faculty for that student, and the number of available visit-day slots.
+faculty for that student, and the number of slots where the student can attend.
+
+`student_availability.csv` (optional)
+
+```csv
+student_id,slot_id
+S01,D1-S1
+S01,D1-S2
+```
+
+When Qualtrics student responses are uploaded, the app creates this table from
+the daily Time 1/Time 2/Time 3 availability questions. Time blocks are interpreted
+as 9:00-11:40, 11:40-14:20, and 14:20-17:00 for each day. If omitted in the
+direct CSV path, the app assumes students are available for all visit-day slots.
 
 ## Validation
 
@@ -108,10 +124,12 @@ Before solving, the app checks:
 - duplicate faculty/slot availability rows
 - unknown faculty IDs in preferences or availability
 - unknown slot IDs in availability
+- unknown student IDs or slot IDs in student availability
 - invalid rank values
 - empty preference or availability files
 - faculty with zero availability
 - students with too few preferences
+- students with no usable time availability
 - unreasonable max meeting requests
 
 Errors block scheduling. Warnings allow scheduling but should be reviewed.
@@ -155,6 +173,7 @@ state is not a permanent system of record.
 - `src/diagnostics.py`: schedule diagnostics tables
 - `src/exports.py`: downloadable schedule export tables
 - `src/google_intake.py`: recipient validation and staff-send package boundary
+- `src/qualtrics_adapter.py`: finalized Qualtrics student/faculty response parser
 - `src/form_spec.py`: student preference form template
 - `src/faculty_form_spec.py`: faculty availability form template
 - `src/adapter.py`: student response CSV adapter

@@ -4,7 +4,7 @@ Run with:  streamlit run app.py
 
 Designed for non-technical IEOR staff. The workflow runs left to right across the
 tabs: read the Overview, lay out the two visit days, collect student preferences
-and faculty availability via Google Forms, then build the optimal schedule.
+and faculty availability via Qualtrics, then build the optimal schedule.
 """
 
 import os
@@ -25,6 +25,7 @@ from validation import validate_solver_inputs
 from diagnostics import build_diagnostics
 from exports import build_export_tables, to_csv_bytes
 from student_metrics import MAX_COL
+from qualtrics_adapter import adapt_faculty_qualtrics, adapt_student_qualtrics
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(HERE, "assets", "logo.png")
@@ -273,13 +274,13 @@ def message_body(audience):
 
 def staff_send_steps(audience):
     person = "students" if audience == "student" else "faculty"
-    form_name = "student preference form" if audience == "student" else "faculty availability form"
+    form_name = "student preference survey" if audience == "student" else "faculty availability survey"
     return (
-        f"1. Build the {form_name} in Google Forms using the template CSV above.\n"
-        "2. Replace the placeholder in the email body with the real Google Form link.\n"
+        f"1. Use the finalized Qualtrics {form_name}.\n"
+        "2. Replace the placeholder in the email body with the real Qualtrics link.\n"
         f"3. Send the email to the downloaded {person} recipient list using Gmail or Outlook.\n"
-        "4. In Google Forms, link the Responses tab to a Google Sheet.\n"
-        "5. After responses arrive, download the Sheet as CSV and upload it back here.\n"
+        "4. After responses arrive, export the Qualtrics responses as CSV.\n"
+        "5. Upload the CSV back here without renaming or deleting columns.\n"
     )
 
 
@@ -287,7 +288,7 @@ def render_email_package_downloads(audience, recipients, subject, body, key_pref
     st.markdown("**Staff-send package**")
     st.caption(
         "The app prepares the files and text. Staff send the email manually, then upload "
-        "the response CSV after Google Forms responses arrive."
+        "the response CSV after Qualtrics responses arrive."
     )
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -446,7 +447,7 @@ def schedule_view(assignments, faculty, grid):
     return view
 
 
-def can_add_assignment(assignments, student_id, faculty_id, slot_id):
+def can_add_assignment(assignments, student_id, faculty_id, slot_id, availability=None, student_availability=None):
     conflicts = []
     if ((assignments["student_id"] == student_id) & (assignments["slot_id"] == slot_id)).any():
         conflicts.append("That student already has a meeting in this slot.")
@@ -454,6 +455,20 @@ def can_add_assignment(assignments, student_id, faculty_id, slot_id):
         conflicts.append("That faculty member already has a meeting in this slot.")
     if ((assignments["student_id"] == student_id) & (assignments["faculty_id"] == faculty_id)).any():
         conflicts.append("That student and faculty member already meet in this schedule.")
+    if availability is not None and not getattr(availability, "empty", True):
+        fac_ok = (
+            (availability["faculty_id"].astype(str) == str(faculty_id))
+            & (availability["slot_id"].astype(str) == str(slot_id))
+        ).any()
+        if not fac_ok:
+            conflicts.append("That faculty member did not mark this slot as available.")
+    if student_availability is not None and not getattr(student_availability, "empty", True):
+        stu_ok = (
+            (student_availability["student_id"].astype(str) == str(student_id))
+            & (student_availability["slot_id"].astype(str) == str(slot_id))
+        ).any()
+        if not stu_ok:
+            conflicts.append("That student did not mark this slot as available.")
     return conflicts
 
 
@@ -508,7 +523,14 @@ def render_manual_review(result):
     slabel = a3.selectbox("Slot", slots["label"], key="manual_add_slot")
     fid = faculty_options.loc[faculty_options["label"] == flabel, "faculty_id"].iloc[0]
     slot_id = slots.loc[slots["label"] == slabel, "slot_id"].iloc[0]
-    conflicts = can_add_assignment(assignments, sid, fid, slot_id)
+    conflicts = can_add_assignment(
+        assignments,
+        sid,
+        fid,
+        slot_id,
+        availability=result.get("availability"),
+        student_availability=result.get("student_availability"),
+    )
     if conflicts:
         for conflict in conflicts:
             st.warning(conflict)
@@ -756,7 +778,6 @@ with tabs[1]:
 def render_student_intake():
     from google_intake import send_intake
     from form_spec import build_spec
-    from adapter import adapt
     import send_log
 
     DEFAULT_SUBJECT = "IEOR Visit Day: tell us which faculty you want to meet"
@@ -825,12 +846,13 @@ def render_student_intake():
             for e in result.errors:
                 st.write("- ", e)
 
-    step(2, "Prepare the preference form")
-    guide("Build the Google Form exactly from this template", [
-        "Copy question titles exactly; the response parser uses those titles to identify answers.",
-        "Only the student's 1st choice is required; leave 2nd-8th choice questions optional.",
-        "In the Google Form or email, encourage students to list at least 3 genuine choices because backups improve scheduling flexibility.",
-        "Do not rename faculty options after students have started responding.",
+    step(2, "Prepare the Qualtrics preference survey")
+    guide("Qualtrics survey rules", [
+        "Use the finalized Qualtrics student survey for collection.",
+        "Students may request 1-8 faculty meetings.",
+        "Tell students in the survey/email that choosing at least 3 genuine faculty preferences improves schedule flexibility.",
+        "Keep the faculty names in the rank question unchanged after students have started responding.",
+        "Use the 3 daily time blocks exactly as Time 1, Time 2, and Time 3.",
     ])
     spec = build_spec(ROSTER_XLSX)
     st.download_button(
@@ -853,46 +875,71 @@ def render_student_intake():
                 more = f" ... (+{len(opts) - 10} more)" if len(opts) > 10 else ""
                 st.caption(f"Options: {shown}{more}")
 
-    step(3, "Import student responses")
+    step(3, "Import student Qualtrics responses")
     guide("Upload rule", [
-        "After responses are collected, open the linked Google Sheet and download as CSV.",
+        "After responses are collected, export the Qualtrics responses as CSV.",
         "Upload the CSV exactly as downloaded; do not delete columns or rename headers.",
+        "The app uses RecipientEmail when Qualtrics supplies it, so students do not need a separate email question.",
         "Warnings are okay to review, but errors must be fixed before scheduling.",
     ])
     st.caption(
-        "After collecting Google Form responses, download the response Sheet as CSV "
-        "and upload it here. The app converts it to solver-ready preferences.csv."
+        "Upload the finalized Qualtrics student export here. The app converts rank answers "
+        "to preferences.csv, Q2 to students.csv, and Q4 time blocks to student_availability.csv."
     )
-    resp_file = st.file_uploader("Student response CSV from Google Forms", type="csv", key="student_resp_csv")
+    resp_file = st.file_uploader("Student response CSV from Qualtrics", type="csv", key="student_resp_csv")
     if resp_file is not None:
-        responses = pd.read_csv(resp_file)
-        prefs, interests, warnings = adapt(responses, ROSTER_XLSX)
-        st.session_state["parsed_preferences"] = prefs
-        st.session_state["parsed_student_interests"] = interests
-        st.session_state["parsed_students"] = student_requests_from_responses(prefs, responses, recipients)
-        notice(f"Parsed {len(prefs)} preference rows for {prefs['student_id'].nunique()} students.")
-        if warnings:
-            with st.expander(f"{len(warnings)} student response warning(s)", expanded=True):
-                for w in warnings:
-                    st.warning(w)
-        st.download_button(
-            "Download preferences.csv",
-            prefs.to_csv(index=False),
-            "preferences.csv",
-            "text/csv",
-            key="student_preferences_download",
-        )
-        st.download_button(
-            "Download student_interests.csv",
-            interests.to_csv(index=False),
-            "student_interests.csv",
-            "text/csv",
-            key="student_interests_download",
-        )
+        try:
+            responses = pd.read_csv(resp_file)
+            prefs, interests, student_requests, student_availability, parsed_students, survey_faculty, warnings = (
+                adapt_student_qualtrics(responses, ROSTER_XLSX, get_grid())
+            )
+            st.session_state["parsed_preferences"] = prefs
+            st.session_state["parsed_student_interests"] = interests
+            st.session_state["parsed_students"] = student_requests
+            st.session_state["parsed_student_availability"] = student_availability
+            st.session_state["parsed_student_roster"] = parsed_students
+            st.session_state["parsed_qualtrics_faculty"] = survey_faculty
+            notice(
+                f"Parsed {len(prefs)} preference rows, {len(student_availability)} student availability rows, "
+                f"and {len(student_requests)} student request rows."
+            )
+            if warnings:
+                with st.expander(f"{len(warnings)} student response warning(s)", expanded=True):
+                    for w in warnings:
+                        st.warning(w)
+            with st.expander("Parsed Qualtrics faculty list", expanded=False):
+                st.dataframe(survey_faculty[["faculty_id", "name", "area"]], hide_index=True, use_container_width=True)
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.download_button(
+                    "Download preferences.csv",
+                    prefs.to_csv(index=False),
+                    "preferences.csv",
+                    "text/csv",
+                    key="student_preferences_download",
+                )
+            with c2:
+                st.download_button(
+                    "Download students.csv",
+                    student_requests.to_csv(index=False),
+                    "students.csv",
+                    "text/csv",
+                    key="student_requests_download",
+                )
+            with c3:
+                st.download_button(
+                    "Download student_availability.csv",
+                    student_availability.to_csv(index=False),
+                    "student_availability.csv",
+                    "text/csv",
+                    key="student_availability_download",
+                )
+        except Exception as exc:
+            st.error(f"Could not parse the student Qualtrics CSV: {exc}")
 
     with st.expander("Prepare staff-send email package", expanded=True):
         guide("Manual send rule", [
-            "Replace the form-link placeholder in the email text with the real Google Form URL.",
+            "Replace the form-link placeholder in the email text with the real Qualtrics URL.",
             "Send the email manually through Gmail or Outlook; the app does not send live email.",
             "Record the package after reviewing recipients, subject, and body.",
         ])
@@ -943,7 +990,6 @@ with tabs[2]:
 def render_faculty_intake():
     from google_intake import send_intake
     from faculty_form_spec import build_faculty_spec
-    from faculty_adapter import adapt_faculty_availability
     import send_log
 
     DEFAULT_SUBJECT = "IEOR Visit Day: when are you available to meet students?"
@@ -1011,10 +1057,12 @@ def render_faculty_intake():
             for e in result.errors:
                 st.write("- ", e)
 
-    step(2, "Prepare the availability form")
-    guide("Build the Google Form exactly from this template", [
-        "Create one checkbox question for each visit day shown in the template.",
-        "Keep time-window labels unchanged so the app can map answers back to schedule slots.",
+    step(2, "Prepare the Qualtrics availability survey")
+    guide("Qualtrics survey rules", [
+        "Use the finalized Qualtrics faculty survey for collection.",
+        "If possible, upload the student Qualtrics CSV first so the app can reuse the exact faculty list from the ranking question.",
+        "Keep faculty names consistent with the faculty table above.",
+        "Keep the daily time labels exactly as Time 1, Time 2, and Time 3.",
         "Ask faculty to check every window they are available; unchecked means unavailable.",
     ])
     st.caption("The available time windows come from your visit-day structure.")
@@ -1039,40 +1087,48 @@ def render_faculty_intake():
                 more = f" ... (+{len(opts) - 10} more)" if len(opts) > 10 else ""
                 st.caption(f"Options: {shown}{more}")
 
-    step(3, "Import faculty responses")
+    step(3, "Import faculty Qualtrics responses")
     guide("Upload rule", [
-        "Download the linked Google Sheet responses as CSV after faculty submit availability.",
-        "Upload the CSV exactly as downloaded; do not rename time-window columns.",
+        "Export the Qualtrics responses as CSV after faculty submit availability.",
+        "Upload the CSV exactly as downloaded; do not rename Q1 or Q2 columns.",
         "If the app warns about matching, check faculty names/emails against the table above.",
     ])
     st.caption(
-        "After collecting Google Form responses, download the response Sheet as CSV "
-        "and upload it here. The app converts checked time windows to availability.csv."
+        "Upload the finalized Qualtrics faculty export here. The app converts checked "
+        "Time 1/2/3 blocks into solver-ready availability.csv rows."
     )
-    fac_resp_file = st.file_uploader("Faculty response CSV from Google Forms", type="csv", key="faculty_resp_csv")
+    fac_resp_file = st.file_uploader("Faculty response CSV from Qualtrics", type="csv", key="faculty_resp_csv")
     if fac_resp_file is not None:
-        responses = pd.read_csv(fac_resp_file)
-        if "faculty_id" not in recipients.columns:
-            st.warning("Faculty matching is most reliable when the uploaded faculty list includes faculty_id.")
-        availability, warnings = adapt_faculty_availability(responses, recipients, grid)
-        st.session_state["parsed_availability"] = availability
-        st.session_state["parsed_faculty"] = recipients
-        notice(f"Parsed {len(availability)} faculty availability rows.")
-        if warnings:
-            with st.expander(f"{len(warnings)} faculty response warning(s)", expanded=True):
-                for w in warnings:
-                    st.warning(w)
-        st.download_button(
-            "Download availability.csv",
-            availability.to_csv(index=False),
-            "availability.csv",
-            "text/csv",
-            key="faculty_availability_download",
-        )
+        try:
+            responses = pd.read_csv(fac_resp_file)
+            if "faculty_id" not in recipients.columns:
+                st.warning("Faculty matching is most reliable when the uploaded faculty list includes faculty_id.")
+            parse_faculty = st.session_state.get("parsed_qualtrics_faculty")
+            if parse_faculty is None or parse_faculty.empty:
+                parse_faculty = recipients
+            else:
+                st.info("Using the faculty list parsed from the student Qualtrics ranking question for ID matching.")
+            availability, warnings = adapt_faculty_qualtrics(responses, parse_faculty, grid)
+            st.session_state["parsed_availability"] = availability
+            st.session_state["parsed_faculty"] = parse_faculty
+            notice(f"Parsed {len(availability)} faculty availability rows.")
+            if warnings:
+                with st.expander(f"{len(warnings)} faculty response warning(s)", expanded=True):
+                    for w in warnings:
+                        st.warning(w)
+            st.download_button(
+                "Download availability.csv",
+                availability.to_csv(index=False),
+                "availability.csv",
+                "text/csv",
+                key="faculty_availability_download",
+            )
+        except Exception as exc:
+            st.error(f"Could not parse the faculty Qualtrics CSV: {exc}")
 
     with st.expander("Prepare staff-send email package", expanded=True):
         guide("Manual send rule", [
-            "Replace the form-link placeholder in the email text with the real Google Form URL.",
+            "Replace the form-link placeholder in the email text with the real Qualtrics URL.",
             "Send the email manually through Gmail or Outlook; the app does not send live email.",
             "Record the package after reviewing recipients, subject, and body.",
         ])
@@ -1117,12 +1173,13 @@ def render_faculty_intake():
             st.info("Upload a faculty response CSV above to preview parsed availability.")
         else:
             parsed = st.session_state["parsed_availability"]
-            if "faculty_id" not in recipients.columns or "name" not in recipients.columns:
+            preview_faculty = st.session_state.get("parsed_faculty", recipients)
+            if "faculty_id" not in preview_faculty.columns or "name" not in preview_faculty.columns:
                 st.info("Upload a faculty list with faculty_id and name to preview individual timelines.")
             else:
-                names = recipients_names(recipients)
+                names = recipients_names(preview_faculty)
                 pick = st.selectbox("View a faculty member's availability", names)
-                faculty_row = recipients[recipients["name"].astype(str) == pick]
+                faculty_row = preview_faculty[preview_faculty["name"].astype(str) == pick]
                 if not faculty_row.empty:
                     fid = faculty_row["faculty_id"].iloc[0]
                     free_slots = set(parsed[parsed["faculty_id"] == fid]["slot_id"])
@@ -1167,7 +1224,7 @@ def render_matching():
         horizontal=True,
     )
 
-    faculty = availability = preferences = students = None
+    faculty = availability = preferences = students = student_availability = None
     cfg = make_config()
     grid = get_grid()
 
@@ -1187,22 +1244,29 @@ def render_matching():
             and "parsed_preferences" in st.session_state
         )
         if session_ready:
-            if st.button("Use parsed response data from this session"):
+            use_session = st.checkbox(
+                "Use parsed Qualtrics response data from this session",
+                value=True,
+                key="use_parsed_session_data",
+            )
+            if use_session:
                 faculty = st.session_state["parsed_faculty"]
                 if "area" not in faculty.columns:
                     faculty = faculty.assign(area="")
                 availability = st.session_state["parsed_availability"]
                 preferences = st.session_state["parsed_preferences"]
                 students = st.session_state.get("parsed_students")
+                student_availability = st.session_state.get("parsed_student_availability")
                 if students is None:
                     students = student_requests_from_preferences(preferences)
-                notice("Parsed response data loaded and ready to schedule.")
+                notice("Parsed Qualtrics response data is loaded and ready to schedule.")
         st.caption(
-            "Upload faculty.csv, availability.csv, and preferences.csv. Optional students.csv "
-            "can include student_id and max_meetings_requested."
+            "Upload faculty.csv, availability.csv, and preferences.csv if you are not using parsed session data. "
+            "Optional students.csv can include student_id and max_meetings_requested. "
+            "Optional student_availability.csv limits scheduling to each student's selected time blocks."
         )
         with st.expander("Download sample scheduler CSVs", expanded=False):
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5 = st.columns(5)
             with c1:
                 sample_download("test_faculty.csv", "faculty.csv sample", key="build_sample_faculty_download")
             with c2:
@@ -1211,15 +1275,27 @@ def render_matching():
                 sample_download("test_preferences.csv", "preferences.csv sample", key="build_sample_preferences_download")
             with c4:
                 sample_download("test_student_requests.csv", "students.csv sample", key="build_sample_students_download")
-        fac_f = st.file_uploader("faculty.csv", type="csv")
-        avail_f = st.file_uploader("availability.csv", type="csv")
-        pref_f = st.file_uploader("preferences.csv", type="csv")
-        students_f = st.file_uploader("students.csv (optional)", type="csv")
-        if fac_f and avail_f and pref_f:
+            with c5:
+                sample_download(
+                    "test_student_availability.csv",
+                    "student_availability.csv sample",
+                    key="build_sample_student_availability_download",
+                )
+        fac_f = st.file_uploader("faculty.csv", type="csv", key="build_faculty_csv")
+        avail_f = st.file_uploader("availability.csv", type="csv", key="build_availability_csv")
+        pref_f = st.file_uploader("preferences.csv", type="csv", key="build_preferences_csv")
+        students_f = st.file_uploader("students.csv (optional)", type="csv", key="build_students_csv")
+        student_avail_f = st.file_uploader(
+            "student_availability.csv (optional)",
+            type="csv",
+            key="build_student_availability_csv",
+        )
+        if faculty is None and fac_f and avail_f and pref_f:
             faculty = pd.read_csv(fac_f)
             availability = pd.read_csv(avail_f)
             preferences = pd.read_csv(pref_f)
             students = pd.read_csv(students_f) if students_f else student_requests_from_preferences(preferences)
+            student_availability = pd.read_csv(student_avail_f) if student_avail_f else None
             notice("Collected data loaded and ready to schedule.")
 
     rule()
@@ -1231,7 +1307,7 @@ def render_matching():
     ])
     st.caption(
         "The optimizer respects each student's effective max meetings: the smaller of "
-        "their requested max, their number of ranked faculty, and the number of available slots."
+        "their requested max, their number of ranked faculty, and the slots where both student and faculty are available."
     )
     with st.expander("Advanced settings"):
         st.session_state["time_limit"] = st.slider(
@@ -1241,7 +1317,15 @@ def render_matching():
 
     validation = None
     if faculty is not None:
-        validation = validate_solver_inputs(faculty, availability, preferences, grid, students=students, cfg=cfg)
+        validation = validate_solver_inputs(
+            faculty,
+            availability,
+            preferences,
+            grid,
+            students=students,
+            cfg=cfg,
+            student_availability=student_availability,
+        )
         if validation.info:
             for msg in validation.info:
                 st.success(msg)
@@ -1257,7 +1341,15 @@ def render_matching():
     can_solve = validation.ok if validation is not None else False
     if faculty is not None and st.button("Match students to faculty", type="primary", disabled=not can_solve):
         with st.spinner("Optimizing schedule..."):
-            assignments, status, obj = solve(faculty, availability, preferences, grid, cfg, student_requests=students)
+            assignments, status, obj = solve(
+                faculty,
+                availability,
+                preferences,
+                grid,
+                cfg,
+                student_requests=students,
+                student_availability=student_availability,
+            )
 
         if assignments.empty:
             st.error(f"No feasible schedule found (solver status: {status}). Check availability data.")
@@ -1270,6 +1362,7 @@ def render_matching():
                 "students": students,
                 "grid": grid,
                 "availability": availability,
+                "student_availability": student_availability,
                 "status": status,
                 "objective": obj,
             }
@@ -1280,7 +1373,7 @@ def render_matching():
         mx = compute_metrics(r["assignments"], r["preferences"])
         dx = build_diagnostics(
             r["assignments"], r["faculty"], r["availability"], r["preferences"], r["grid"],
-            students=r.get("students"), cfg=cfg
+            students=r.get("students"), cfg=cfg, student_availability=r.get("student_availability")
         )
         exports = build_export_tables(sched, dx["student_outcomes"])
 

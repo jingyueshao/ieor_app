@@ -6,9 +6,18 @@ from config import DEFAULT
 from student_metrics import student_satisfaction_table
 
 
-def build_diagnostics(assignments, faculty, availability, preferences, grid, students=None, cfg=DEFAULT):
+def build_diagnostics(
+    assignments,
+    faculty,
+    availability,
+    preferences,
+    grid,
+    students=None,
+    cfg=DEFAULT,
+    student_availability=None,
+):
     faculty_capacity = _faculty_capacity(faculty, availability, assignments)
-    student_outcomes = _student_outcomes(assignments, preferences, grid, students, cfg)
+    student_outcomes = _student_outcomes(assignments, preferences, grid, students, cfg, student_availability)
     demand = _faculty_demand(faculty, preferences, assignments)
     summary = _summary(assignments, availability, preferences, student_outcomes)
     unassigned = _unassigned_preferences(assignments, preferences, faculty)
@@ -26,7 +35,7 @@ def build_diagnostics(assignments, faculty, availability, preferences, grid, stu
     ]
     if not unused.empty:
         warnings.append(f"{len(unused)} available faculty have no scheduled meetings.")
-    notes = _staff_notes(faculty_capacity, student_outcomes, demand, unassigned, cfg)
+    notes = _staff_notes(faculty_capacity, student_outcomes, demand, unassigned, cfg, student_availability, grid)
 
     return {
         "summary": summary,
@@ -40,8 +49,38 @@ def build_diagnostics(assignments, faculty, availability, preferences, grid, stu
     }
 
 
-def _staff_notes(faculty_capacity, student_outcomes, demand, unassigned, cfg):
+def _staff_notes(faculty_capacity, student_outcomes, demand, unassigned, cfg, student_availability, grid):
     notes = []
+
+    if student_availability is not None and not getattr(student_availability, "empty", True):
+        available_counts = (
+            student_availability.assign(student_id=student_availability["student_id"].astype(str))
+            .drop_duplicates(["student_id", "slot_id"])
+            .groupby("student_id")
+            .size()
+        )
+        no_time = student_outcomes[
+            ~student_outcomes["student_id"].astype(str).isin(available_counts.index)
+        ]
+        if not no_time.empty:
+            notes.append({
+                "level": "Action",
+                "title": f"{len(no_time)} student(s) submitted no usable availability",
+                "detail": (
+                    "These students cannot be scheduled unless staff correct the response or add time manually: "
+                    + ", ".join(no_time["student_id"].astype(str).head(8).tolist())
+                ),
+            })
+        limited = available_counts[available_counts < max(1, min(3, len(grid)))]
+        if not limited.empty:
+            notes.append({
+                "level": "Review",
+                "title": f"{len(limited)} student(s) have very limited availability",
+                "detail": (
+                    "If these students receive few meetings, check their time selections first: "
+                    + ", ".join(limited.index.astype(str).tolist()[:8])
+                ),
+            })
 
     no_rankings = demand[demand["total_rankings"] == 0]
     if not no_rankings.empty:
@@ -210,8 +249,8 @@ def _faculty_capacity(faculty, availability, assignments):
     return out.sort_values(["scheduled_meetings", "available_slots"], ascending=False)
 
 
-def _student_outcomes(assignments, preferences, grid, students=None, cfg=DEFAULT):
-    out = student_satisfaction_table(assignments, preferences, grid, students, cfg)
+def _student_outcomes(assignments, preferences, grid, students=None, cfg=DEFAULT, student_availability=None):
+    out = student_satisfaction_table(assignments, preferences, grid, students, cfg, student_availability)
     student_ids = pd.Index(preferences["student_id"].astype(str).unique(), name="student_id")
     got = assignments.copy()
     if got.empty:
