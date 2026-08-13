@@ -329,6 +329,106 @@ def spec_template_df(spec):
     return pd.DataFrame(rows)
 
 
+def qualtrics_student_spec_df(roster_path):
+    from roster import load_roster
+
+    faculty_names = load_roster(roster_path)["name"].tolist()
+    return pd.DataFrame([
+        {
+            "qualtrics_id": "Q1",
+            "question": "Student Name (First, Last)",
+            "type": "Text Entry",
+            "required": True,
+            "answer_options": "Free text",
+            "staff_note": "Student name used for schedule review.",
+        },
+        {
+            "qualtrics_id": "Q2",
+            "question": "How many faculty members do you want to meet with?",
+            "type": "Multiple Choice",
+            "required": True,
+            "answer_options": "1 | 2 | 3 | 4 | 5 | 6 | 7 | 8",
+            "staff_note": "This becomes max_meetings_requested.",
+        },
+        {
+            "qualtrics_id": "Q3",
+            "question": (
+                "Based on your previous answer: Please rank the desired professor "
+                "engagements from most favorite to least. Please note that each meeting "
+                "will be a 30-min window."
+            ),
+            "type": "Rank Order",
+            "required": True,
+            "answer_options": "Faculty list from roster",
+            "staff_note": (
+                "Keep faculty names unchanged. The app reads each Q3_* column's question "
+                "text after the '-' to identify the faculty."
+            ),
+        },
+        {
+            "qualtrics_id": "Q4",
+            "question": "Please pick your time availability",
+            "type": "Matrix / Checkbox",
+            "required": True,
+            "answer_options": "Rows: Date 1, Date 2 | Columns: Time 1, Time 2, Time 3",
+            "staff_note": "Time 1=9:00-11:40, Time 2=11:40-14:20, Time 3=14:20-17:00.",
+        },
+        {
+            "qualtrics_id": "Faculty options",
+            "question": "Faculty names used in Q3",
+            "type": "Reference list",
+            "required": False,
+            "answer_options": " | ".join(faculty_names),
+            "staff_note": "This is the list the parser expects to see in the ranking question.",
+        },
+    ])
+
+
+def qualtrics_faculty_spec_df(roster_path):
+    from roster import load_roster
+
+    faculty_names = load_roster(roster_path)["name"].tolist()
+    return pd.DataFrame([
+        {
+            "qualtrics_id": "Q1",
+            "question": "Please choose your name from the list",
+            "type": "Multiple Choice",
+            "required": True,
+            "answer_options": " | ".join(faculty_names),
+            "staff_note": "Faculty names must match the student survey faculty names.",
+        },
+        {
+            "qualtrics_id": "Q2",
+            "question": "Please pick your time availability",
+            "type": "Matrix / Checkbox",
+            "required": True,
+            "answer_options": "Rows: Date 1, Date 2 | Columns: Time 1, Time 2, Time 3",
+            "staff_note": "Time 1=9:00-11:40, Time 2=11:40-14:20, Time 3=14:20-17:00.",
+        },
+    ])
+
+
+def render_qualtrics_preview(spec_df, key_prefix):
+    st.dataframe(spec_df, hide_index=True, use_container_width=True)
+    st.download_button(
+        "Download Qualtrics survey outline CSV",
+        spec_df.to_csv(index=False).encode("utf-8"),
+        f"{key_prefix}_qualtrics_survey_outline.csv",
+        "text/csv",
+        key=f"{key_prefix}_qualtrics_outline_download",
+    )
+
+
+def qualtrics_send_spec(title, spec_df):
+    return {
+        "title": title,
+        "questions": [
+            {"title": row.question, "type": row.type, "required": bool(row.required)}
+            for row in spec_df.itertuples()
+        ],
+    }
+
+
 def clean_people_editor(df, add_faculty_ids=False, add_student_requests=False):
     """Clean direct-entry name/email rows from the Streamlit data editor."""
     if df is None or df.empty:
@@ -679,13 +779,15 @@ with tabs[0]:
          "meeting slots each day has as you make changes."),
         ("Prospective students",
          "Next, enter student names and emails directly, or import a CSV if one already "
-         "exists. The tool prepares a preference-form template, recipient list, and email "
-         "text. Staff send the email manually, then upload the exported response CSV."),
+         "exists. The tool shows the finalized Qualtrics student survey structure, "
+         "recipient list, and email text. Staff send the email manually, then upload "
+         "the exported Qualtrics response CSV."),
         ("Faculty availability",
          "Now collect faculty availability. Enter faculty names and emails directly, "
-         "with optional research areas, then download the availability-form template and "
-         "staff-send package. After responses come back, upload the response CSV and the "
-         "app converts checked time windows into scheduler-ready availability."),
+         "with optional research areas, then review the finalized Qualtrics faculty "
+         "survey structure and staff-send package. After responses come back, upload "
+         "the Qualtrics response CSV and the app converts checked time windows into "
+         "scheduler-ready availability."),
         ("Build schedules",
          "Finally, generate the schedules. The tool takes everything you have collected, "
          "the students' ranked preferences, each faculty member's availability, and your "
@@ -777,10 +879,10 @@ with tabs[1]:
 # =====================================================================
 def render_student_intake():
     from google_intake import send_intake
-    from form_spec import build_spec
     import send_log
 
     DEFAULT_SUBJECT = "IEOR Visit Day: tell us which faculty you want to meet"
+    student_qualtrics_spec = qualtrics_student_spec_df(ROSTER_XLSX)
 
     step(1, "Enter prospective students")
     guide("Staff checklist", [
@@ -840,7 +942,11 @@ def render_student_intake():
     notice(f"Loaded {len(recipients)} students ({st.session_state['recipients_source']}).")
     st.dataframe(recipients.head(25), hide_index=True, use_container_width=True)
 
-    result = send_intake(recipients, roster_path=ROSTER_XLSX, dry_run=True)
+    result = send_intake(
+        recipients,
+        spec=qualtrics_send_spec("IEOR Visit Day - Student Preferences", student_qualtrics_spec),
+        dry_run=True,
+    )
     if result.errors:
         with st.expander(f"{len(result.errors)} row issue(s)"):
             for e in result.errors:
@@ -854,26 +960,8 @@ def render_student_intake():
         "Keep the faculty names in the rank question unchanged after students have started responding.",
         "Use the 3 daily time blocks exactly as Time 1, Time 2, and Time 3.",
     ])
-    spec = build_spec(ROSTER_XLSX)
-    st.download_button(
-        "Download student form template CSV",
-        spec_template_df(spec).to_csv(index=False).encode("utf-8"),
-        "student_preference_form_template.csv",
-        "text/csv",
-        key="student_form_template_download",
-    )
-    with st.expander(f"Preview form questions ({len(spec['questions'])})", expanded=False):
-        st.markdown(f"*{spec['description']}*")
-        for i, q in enumerate(spec["questions"], start=1):
-            req = " (required)" if q.get("required") else ""
-            st.markdown(f"**{i}. {q['title']}**  `{q['type']}`{req}")
-            if q.get("help"):
-                st.caption(q["help"])
-            opts = q.get("options", [])
-            if opts:
-                shown = ", ".join(opts[:10])
-                more = f" ... (+{len(opts) - 10} more)" if len(opts) > 10 else ""
-                st.caption(f"Options: {shown}{more}")
+    with st.expander("Preview finalized Qualtrics student survey questions", expanded=True):
+        render_qualtrics_preview(student_qualtrics_spec, "student")
 
     step(3, "Import student Qualtrics responses")
     guide("Upload rule", [
@@ -1009,10 +1097,10 @@ with tabs[2]:
 # =====================================================================
 def render_faculty_intake():
     from google_intake import send_intake
-    from faculty_form_spec import build_faculty_spec
     import send_log
 
     DEFAULT_SUBJECT = "IEOR Visit Day: when are you available to meet students?"
+    faculty_qualtrics_spec = qualtrics_faculty_spec_df(ROSTER_XLSX)
 
     grid = get_grid()
     if grid.empty:
@@ -1070,8 +1158,11 @@ def render_faculty_intake():
     notice(f"Loaded {len(recipients)} faculty ({st.session_state['fac_source']}).")
     st.dataframe(recipients.head(25), hide_index=True, use_container_width=True)
 
-    spec = build_faculty_spec(grid)
-    result = send_intake(recipients, spec=spec, dry_run=True)
+    result = send_intake(
+        recipients,
+        spec=qualtrics_send_spec("IEOR Visit Day - Faculty Availability", faculty_qualtrics_spec),
+        dry_run=True,
+    )
     if result.errors:
         with st.expander(f"{len(result.errors)} row issue(s)"):
             for e in result.errors:
@@ -1085,27 +1176,9 @@ def render_faculty_intake():
         "Keep the daily time labels exactly as Time 1, Time 2, and Time 3.",
         "Ask faculty to check every window they are available; unchecked means unavailable.",
     ])
-    st.caption("The available time windows come from your visit-day structure.")
-    st.download_button(
-        "Download faculty availability form template CSV",
-        spec_template_df(spec).to_csv(index=False).encode("utf-8"),
-        "faculty_availability_form_template.csv",
-        "text/csv",
-        key="faculty_form_template_download",
-    )
-
-    with st.expander(f"Preview form questions ({len(spec['questions'])})", expanded=False):
-        st.markdown(f"*{spec['description']}*")
-        for i, q in enumerate(spec["questions"], start=1):
-            req = " (required)" if q.get("required") else ""
-            st.markdown(f"**{i}. {q['title']}**  `{q['type']}`{req}")
-            if q.get("help"):
-                st.caption(q["help"])
-            opts = q.get("options", [])
-            if opts:
-                shown = ", ".join(opts[:10])
-                more = f" ... (+{len(opts) - 10} more)" if len(opts) > 10 else ""
-                st.caption(f"Options: {shown}{more}")
+    st.caption("Qualtrics Time 1/2/3 responses are expanded into the visit-day slots configured in tab 2.")
+    with st.expander("Preview finalized Qualtrics faculty survey questions", expanded=True):
+        render_qualtrics_preview(faculty_qualtrics_spec, "faculty")
 
     step(3, "Import faculty Qualtrics responses")
     guide("Upload rule", [
