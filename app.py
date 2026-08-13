@@ -886,6 +886,26 @@ def render_student_intake():
         "Upload the finalized Qualtrics student export here. The app converts rank answers "
         "to preferences.csv, Q2 to students.csv, and Q4 time blocks to student_availability.csv."
     )
+    with st.expander("Download Qualtrics student response samples", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            sample_download(
+                "qualtrics_student_responses_balanced_12.csv",
+                "Balanced 12-student sample",
+                key="sample_qualtrics_students_balanced_download",
+            )
+        with c2:
+            sample_download(
+                "qualtrics_student_responses_limited_12.csv",
+                "Limited availability sample",
+                key="sample_qualtrics_students_limited_download",
+            )
+        with c3:
+            sample_download(
+                "qualtrics_student_responses_edge_cases.csv",
+                "Edge-case sample",
+                key="sample_qualtrics_students_edge_download",
+            )
     resp_file = st.file_uploader("Student response CSV from Qualtrics", type="csv", key="student_resp_csv")
     if resp_file is not None:
         try:
@@ -1097,6 +1117,26 @@ def render_faculty_intake():
         "Upload the finalized Qualtrics faculty export here. The app converts checked "
         "Time 1/2/3 blocks into solver-ready availability.csv rows."
     )
+    with st.expander("Download Qualtrics faculty response samples", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            sample_download(
+                "qualtrics_faculty_responses_balanced_10.csv",
+                "Balanced 10-faculty sample",
+                key="sample_qualtrics_faculty_balanced_download",
+            )
+        with c2:
+            sample_download(
+                "qualtrics_faculty_responses_sparse_10.csv",
+                "Sparse availability sample",
+                key="sample_qualtrics_faculty_sparse_download",
+            )
+        with c3:
+            sample_download(
+                "qualtrics_faculty_responses_edge_cases.csv",
+                "Edge-case sample",
+                key="sample_qualtrics_faculty_edge_download",
+            )
     fac_resp_file = st.file_uploader("Faculty response CSV from Qualtrics", type="csv", key="faculty_resp_csv")
     if fac_resp_file is not None:
         try:
