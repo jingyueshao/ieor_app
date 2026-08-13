@@ -3,8 +3,9 @@
 import pandas as pd
 
 
-def build_export_tables(schedule, student_metrics=None):
+def build_export_tables(schedule, student_metrics=None, students=None):
     schedule = schedule.drop(columns=["assignment_index"], errors="ignore")
+    schedule = _merge_student_contact(schedule, students)
     if student_metrics is not None and not student_metrics.empty:
         metric_cols = [
             "student_id", "max_meetings_requested", "effective_max_meetings",
@@ -22,7 +23,7 @@ def build_export_tables(schedule, student_metrics=None):
         "student_schedules": student,
         "faculty_schedules": faculty,
         "student_diagnostics": student_metrics if student_metrics is not None else pd.DataFrame(),
-        "student_email_text": _person_text(student, "student_id", "faculty"),
+        "student_email_text": _student_text(student),
         "faculty_email_text": _person_text(faculty, "faculty", "student_id"),
     }
 
@@ -41,3 +42,43 @@ def _person_text(schedule, person_col, counterpart_col):
             )
         rows.append({"recipient": person, "schedule_text": "\n".join(lines)})
     return pd.DataFrame(rows)
+
+
+def _merge_student_contact(schedule, students):
+    if students is None or getattr(students, "empty", True) or "student_id" not in students.columns:
+        return schedule
+    contact_cols = [c for c in ["student_id", "name", "email"] if c in students.columns]
+    if len(contact_cols) == 1:
+        return schedule
+    contact = students[contact_cols].copy()
+    contact["student_id"] = contact["student_id"].astype(str)
+    contact = contact.drop_duplicates("student_id", keep="last")
+    out = schedule.copy()
+    out["student_id"] = out["student_id"].astype(str)
+    return out.merge(contact, on="student_id", how="left")
+
+
+def _student_text(schedule):
+    rows = []
+    for student_id, group in schedule.groupby("student_id", sort=True):
+        name = _first_present(group, "name") or student_id
+        email = _first_present(group, "email")
+        lines = [f"Schedule for {name}", ""]
+        for r in group.sort_values(["day", "start"]).itertuples():
+            lines.append(f"Day {r.day}, {r.start}-{r.end}: meet with {r.faculty}")
+        rows.append({
+            "student_id": student_id,
+            "recipient": email or student_id,
+            "recipient_name": name,
+            "recipient_email": email,
+            "schedule_text": "\n".join(lines),
+        })
+    return pd.DataFrame(rows)
+
+
+def _first_present(group, col):
+    if col not in group.columns:
+        return ""
+    values = group[col].dropna().astype(str).str.strip()
+    values = values[values != ""]
+    return values.iloc[0] if not values.empty else ""

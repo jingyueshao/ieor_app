@@ -1021,6 +1021,15 @@ def render_student_intake():
             st.session_state["parsed_student_availability"] = student_availability
             st.session_state["parsed_student_roster"] = parsed_students
             st.session_state["parsed_qualtrics_faculty"] = survey_faculty
+            if "parsed_faculty_response_raw" in st.session_state:
+                reparsed_availability, faculty_warnings = adapt_faculty_qualtrics(
+                    st.session_state["parsed_faculty_response_raw"],
+                    survey_faculty,
+                    get_grid(),
+                )
+                st.session_state["parsed_availability"] = reparsed_availability
+                st.session_state["parsed_faculty"] = survey_faculty
+                warnings.extend(faculty_warnings)
             notice(
                 f"Parsed {len(prefs)} preference rows, {len(student_availability)} student availability rows, "
                 f"and {len(student_requests)} student request rows."
@@ -1228,6 +1237,7 @@ def render_faculty_intake():
     if fac_resp_file is not None:
         try:
             responses = pd.read_csv(fac_resp_file)
+            st.session_state["parsed_faculty_response_raw"] = responses
             if "faculty_id" not in recipients.columns:
                 st.warning("Faculty matching is most reliable when the uploaded faculty list includes faculty_id.")
             parse_faculty = st.session_state.get("parsed_qualtrics_faculty")
@@ -1351,7 +1361,7 @@ def render_matching():
         horizontal=True,
     )
 
-    faculty = availability = preferences = students = student_availability = None
+    faculty = availability = preferences = students = student_availability = student_roster = None
     cfg = make_config()
     grid = get_grid()
 
@@ -1384,6 +1394,20 @@ def render_matching():
                 preferences = st.session_state["parsed_preferences"]
                 students = st.session_state.get("parsed_students")
                 student_availability = st.session_state.get("parsed_student_availability")
+                student_roster = st.session_state.get("parsed_student_roster")
+                if (
+                    "parsed_faculty_response_raw" in st.session_state
+                    and "parsed_qualtrics_faculty" in st.session_state
+                    and not set(availability["faculty_id"].astype(str)).issubset(set(faculty["faculty_id"].astype(str)))
+                ):
+                    faculty = st.session_state["parsed_qualtrics_faculty"]
+                    availability, _ = adapt_faculty_qualtrics(
+                        st.session_state["parsed_faculty_response_raw"],
+                        faculty,
+                        grid,
+                    )
+                    st.session_state["parsed_faculty"] = faculty
+                    st.session_state["parsed_availability"] = availability
                 if students is None:
                     students = student_requests_from_preferences(preferences)
                 notice("Parsed Qualtrics response data is loaded and ready to schedule.")
@@ -1423,6 +1447,7 @@ def render_matching():
             preferences = pd.read_csv(pref_f)
             students = pd.read_csv(students_f) if students_f else student_requests_from_preferences(preferences)
             student_availability = pd.read_csv(student_avail_f) if student_avail_f else None
+            student_roster = students if {"name", "email"}.issubset(set(students.columns)) else None
             notice("Collected data loaded and ready to schedule.")
 
     rule()
@@ -1487,6 +1512,7 @@ def render_matching():
                 "faculty": faculty,
                 "preferences": preferences,
                 "students": students,
+                "student_roster": student_roster,
                 "grid": grid,
                 "availability": availability,
                 "student_availability": student_availability,
@@ -1502,7 +1528,7 @@ def render_matching():
             r["assignments"], r["faculty"], r["availability"], r["preferences"], r["grid"],
             students=r.get("students"), cfg=cfg, student_availability=r.get("student_availability")
         )
-        exports = build_export_tables(sched, dx["student_outcomes"])
+        exports = build_export_tables(sched, dx["student_outcomes"], students=r.get("student_roster"))
 
         step(3, "Results")
         guide("Finalize carefully", [

@@ -64,6 +64,9 @@ def adapt_student_qualtrics(responses: pd.DataFrame, roster_path: str, grid: pd.
     availability_rows = []
     student_rows = []
 
+    data, duplicate_warnings = _dedupe_responses(data, ["RecipientEmail", "Q1"], "student")
+    warnings.extend(duplicate_warnings)
+
     for idx, (_, row) in enumerate(data.iterrows(), start=1):
         sid = str(row.get("student_id", "")).strip() or f"S{idx:02d}"
         name = _clean(row.get("Q1")) or sid
@@ -81,7 +84,7 @@ def adapt_student_qualtrics(responses: pd.DataFrame, roster_path: str, grid: pd.
             if rank is None:
                 continue
             faculty_name = _faculty_name_from_question(question_text.get(col, ""))
-            fid = name2id.get(faculty_name.lower()) if faculty_name else None
+            fid = name2id.get(_normalize_name(faculty_name)) if faculty_name else None
             if fid is None:
                 warnings.append(f"{name}: '{faculty_name or col}' from Qualtrics ranking could not match a faculty roster name.")
                 continue
@@ -131,8 +134,11 @@ def adapt_faculty_qualtrics(responses: pd.DataFrame, faculty: pd.DataFrame, grid
     slot_map = _qualtrics_slot_map(grid)
     day_cols = [c for c in responses.columns if re.match(r"^Q2_\d+$", str(c))]
 
-    rows = []
     warnings = []
+    data, duplicate_warnings = _dedupe_responses(data, ["Q1"], "faculty")
+    warnings.extend(duplicate_warnings)
+
+    rows = []
     for _, row in data.iterrows():
         name = _clean(row.get("Q1"))
         fid = by_name.get(_normalize_name(name))
@@ -164,7 +170,42 @@ def _response_rows(df: pd.DataFrame) -> pd.DataFrame:
         start = out["StartDate"].fillna("").astype(str).str.strip()
         meta = start.eq("Start Date") | start.str.startswith("{")
         out = out[~meta].copy()
+    if "Finished" in out.columns:
+        finished = out["Finished"].fillna("").astype(str).str.strip().str.lower()
+        out = out[finished.isin(["true", "1", "yes"])].copy()
     return out.reset_index(drop=True)
+
+
+def _dedupe_responses(df: pd.DataFrame, key_cols: list[str], label: str):
+    if df.empty:
+        return df, []
+    warnings = []
+    out = df.copy()
+    available_cols = [col for col in key_cols if col in out.columns]
+    if available_cols:
+        key = out.apply(lambda row: _first_nonblank_key(row, available_cols), axis=1)
+    else:
+        key = None
+    if key is None:
+        return out, warnings
+    dupes = key[key.duplicated(keep=False) & key.ne("")]
+    if not dupes.empty:
+        warnings.append(
+            f"Duplicate {label} responses found for {dupes.nunique()} respondent(s); "
+            "the app kept the latest row in the Qualtrics export."
+        )
+        out = out.assign(_dedupe_key=key)
+        out = out[out["_dedupe_key"].eq("") | ~out["_dedupe_key"].duplicated(keep="last")]
+        out = out.drop(columns=["_dedupe_key"])
+    return out.reset_index(drop=True), warnings
+
+
+def _first_nonblank_key(row, cols):
+    for col in cols:
+        val = _normalize_name(row.get(col))
+        if val:
+            return val
+    return ""
 
 
 def _selected_slots(row, day_cols, slot_map):
