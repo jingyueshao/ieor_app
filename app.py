@@ -25,7 +25,11 @@ from validation import validate_solver_inputs
 from diagnostics import build_diagnostics
 from exports import build_export_tables, to_csv_bytes
 from student_metrics import MAX_COL
-from qualtrics_adapter import adapt_faculty_qualtrics, adapt_student_qualtrics
+from qualtrics_adapter import (
+    FINALIZED_STUDENT_SURVEY_FACULTY,
+    adapt_faculty_qualtrics,
+    adapt_student_qualtrics,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(HERE, "assets", "logo.png")
@@ -329,10 +333,8 @@ def spec_template_df(spec):
     return pd.DataFrame(rows)
 
 
-def qualtrics_student_spec_df(roster_path):
-    from roster import load_roster
-
-    faculty_names = load_roster(roster_path)["name"].tolist()
+def qualtrics_student_spec_df():
+    faculty_names = FINALIZED_STUDENT_SURVEY_FACULTY
     return pd.DataFrame([
         {
             "qualtrics_id": "Q1",
@@ -384,10 +386,8 @@ def qualtrics_student_spec_df(roster_path):
     ])
 
 
-def qualtrics_faculty_spec_df(roster_path):
-    from roster import load_roster
-
-    faculty_names = load_roster(roster_path)["name"].tolist()
+def qualtrics_faculty_spec_df():
+    faculty_names = FINALIZED_STUDENT_SURVEY_FACULTY
     return pd.DataFrame([
         {
             "qualtrics_id": "Q1",
@@ -882,7 +882,7 @@ def render_student_intake():
     import send_log
 
     DEFAULT_SUBJECT = "IEOR Visit Day: tell us which faculty you want to meet"
-    student_qualtrics_spec = qualtrics_student_spec_df(ROSTER_XLSX)
+    student_qualtrics_spec = qualtrics_student_spec_df()
 
     step(1, "Enter prospective students")
     guide("Staff checklist", [
@@ -1100,7 +1100,7 @@ def render_faculty_intake():
     import send_log
 
     DEFAULT_SUBJECT = "IEOR Visit Day: when are you available to meet students?"
-    faculty_qualtrics_spec = qualtrics_faculty_spec_df(ROSTER_XLSX)
+    faculty_qualtrics_spec = qualtrics_faculty_spec_df()
 
     grid = get_grid()
     if grid.empty:

@@ -54,6 +54,10 @@ The student survey does not need a separate email question. For real Qualtrics
 mailings, the exported `RecipientEmail` column carries the email address staff
 can use later when sending individual schedules.
 
+When the app parses Qualtrics responses, faculty IDs may appear as `Q3_1`,
+`Q3_4`, or similar. That is expected. The IDs come from the exact student
+ranking columns, so the app is not relying on a separate roster order.
+
 ### 3. Load faculty availability
 
 Open **Faculty availability**.

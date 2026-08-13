@@ -114,6 +114,10 @@ the daily Time 1/Time 2/Time 3 availability questions. Time blocks are interpret
 as 9:00-11:40, 11:40-14:20, and 14:20-17:00 for each day. If omitted in the
 direct CSV path, the app assumes students are available for all visit-day slots.
 
+For parsed Qualtrics responses, `faculty_id` values may look like `Q3_1`,
+`Q3_4`, or `Q3_23`. This is intentional: those IDs preserve the exact Qualtrics
+ranking columns so the schedule cannot be confused by a separate roster order.
+
 ## Validation
 
 Before solving, the app checks:

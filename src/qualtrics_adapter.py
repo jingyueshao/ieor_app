@@ -21,6 +21,31 @@ TIME_BLOCKS = {
     "time 3": (datetime.strptime("14:20", "%H:%M"), datetime.strptime("17:00", "%H:%M") + timedelta(minutes=1)),
 }
 
+FINALIZED_STUDENT_SURVEY_FACULTY = [
+    "Ilan Adler",
+    "Anil Aswani",
+    "Alper Atamturk",
+    "Ying Cui",
+    "Lee Fleming",
+    "Ken Goldberg",
+    "Paul Grigas",
+    "Xin Guo",
+    "Dorit Hochbaum",
+    "Huiwen Jia",
+    "Philip M. Kaminsky",
+    "Phillip Kerger",
+    "Javad Lavaei",
+    "Thibaut Mastrolia",
+    "Daniel Pirutinsky",
+    "Rhonda Righter",
+    "Rajan Udwani",
+    "Chiwei Yan",
+    "Candace Yano",
+    "Zeyu Zheng",
+    "Chenyang Zhong",
+    "Pieter Abbeel",
+]
+
 
 def adapt_student_qualtrics(responses: pd.DataFrame, roster_path: str, grid: pd.DataFrame):
     """Return preferences, interests, request limits, availability, students, faculty, warnings."""
@@ -177,12 +202,12 @@ def _faculty_from_rank_columns(question_text: dict, rank_cols: list, roster: pd.
         if _clean(r.get("name"))
     }
     rows = []
-    for idx, col in enumerate(rank_cols, start=1):
+    for col in rank_cols:
         name = _faculty_name_from_question(question_text.get(col, ""))
         if not name:
             continue
         rows.append({
-            "faculty_id": f"F{idx:02d}",
+            "faculty_id": str(col),
             "name": name,
             "area": area_by_name.get(_normalize_name(name), ""),
             "email": "",

@@ -64,8 +64,8 @@ def test_student_qualtrics_export_maps_rank_and_time_blocks():
     )
 
     assert prefs.to_dict("records") == [
-        {"student_id": "S01", "faculty_id": "F02", "rank": 1},
-        {"student_id": "S01", "faculty_id": "F03", "rank": 2},
+        {"student_id": "S01", "faculty_id": "Q3_2", "rank": 1},
+        {"student_id": "S01", "faculty_id": "Q3_4", "rank": 2},
     ]
     assert requests.to_dict("records") == [{"student_id": "S01", "max_meetings_requested": 2}]
     assert set(availability["slot_id"]) == {"D1-S1", "D1-S2", "D1-S4"}
