@@ -258,12 +258,24 @@ def download_text(label, text, filename, key):
     )
 
 
+def qualtrics_time_block_text():
+    return (
+        "Time blocks in the survey:\n"
+        "- Time 1: 9:00 AM-11:40 AM\n"
+        "- Time 2: 11:40 AM-2:20 PM\n"
+        "- Time 3: 2:20 PM-5:00 PM\n"
+    )
+
+
 def message_body(audience):
     if audience == "student":
         return (
             "Hello,\n\n"
             "Please complete the IEOR Visit Day faculty preference form so we can "
             "build your meeting schedule.\n\n"
+            f"{qualtrics_time_block_text()}\n"
+            "When ranking faculty, please include at least 3 genuine preferences if possible. "
+            "Backup choices help us build a better schedule.\n\n"
             "Form link: [form link will be inserted here]\n\n"
             "Thank you,\nIEOR Staff"
         )
@@ -271,6 +283,8 @@ def message_body(audience):
         "Hello,\n\n"
         "Please complete the IEOR Visit Day availability form so we can schedule "
         "prospective student meetings around your available time windows.\n\n"
+        f"{qualtrics_time_block_text()}\n"
+        "Please select every time block when you are available to meet students.\n\n"
         "Form link: [form link will be inserted here]\n\n"
         "Thank you,\nIEOR Staff"
     )
