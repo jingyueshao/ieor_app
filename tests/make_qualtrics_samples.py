@@ -14,6 +14,9 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "src"))
 
 from roster import load_roster
+from qualtrics_adapter import FINALIZED_STUDENT_SURVEY_FACULTY, adapt_faculty_qualtrics, adapt_student_qualtrics
+from visit_days import build_grid_from_plans, default_plans
+from config import DEFAULT
 
 OUT = os.path.join(HERE, "sample_data")
 ROSTER = os.path.join(HERE, "IEOR_Faculty_Roster.xlsx")
@@ -22,30 +25,59 @@ STUDENTS = [
     "Maya Patel", "Liam Nguyen", "Sofia Garcia", "Noah Kim", "Aisha Hassan", "Ethan Chen",
     "Isabella Martinez", "Lucas Johnson", "Amara Okafor", "Daniel Lee", "Nina Singh", "Mateo Rivera",
 ]
+FULL_STUDENT_FIRST = [
+    "Maya", "Liam", "Sofia", "Noah", "Aisha", "Ethan", "Isabella", "Lucas", "Amara", "Daniel",
+    "Nina", "Mateo", "Priya", "Omar", "Lena", "Wei", "Diego", "Hana", "Ravi", "Elena",
+    "Grace", "Leo", "Fatima", "Arjun", "Clara", "Min", "Sara", "Julian", "Yara", "Ben",
+]
+FULL_STUDENT_LAST = [
+    "Patel", "Nguyen", "Garcia", "Kim", "Hassan", "Chen", "Martinez", "Johnson", "Okafor", "Lee",
+    "Singh", "Rivera", "Rao", "Farah", "Novak", "Zhang", "Silva", "Park", "Iyer", "Morales",
+]
 BASE_COLUMNS = [
     "StartDate", "EndDate", "Status", "IPAddress", "Progress", "Duration (in seconds)", "Finished",
     "RecordedDate", "ResponseId", "RecipientLastName", "RecipientFirstName", "RecipientEmail",
     "ExternalReference", "LocationLatitude", "LocationLongitude", "DistributionChannel", "UserLanguage",
 ]
+FINALIZED_Q3_COLUMNS = [
+    "Q3_1", "Q3_2", "Q3_4", "Q3_5", "Q3_6", "Q3_7", "Q3_8", "Q3_9", "Q3_10", "Q3_11", "Q3_12",
+    "Q3_13", "Q3_14", "Q3_15", "Q3_16", "Q3_17", "Q3_18", "Q3_19", "Q3_20", "Q3_21", "Q3_22", "Q3_23",
+]
 
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    faculty = load_roster(ROSTER).head(10)[["faculty_id", "name", "area"]].reset_index(drop=True)
+    roster = load_roster(ROSTER)
+    faculty = roster.head(10)[["faculty_id", "name", "area"]].reset_index(drop=True)
+    full_faculty = _finalized_faculty(roster)
     write_student_sample(faculty, "qualtrics_student_responses_balanced_12.csv", limited=False)
     write_student_sample(faculty, "qualtrics_student_responses_limited_12.csv", limited=True)
     write_student_edge_sample(faculty)
     write_faculty_sample(faculty, "qualtrics_faculty_responses_balanced_10.csv", sparse=False)
     write_faculty_sample(faculty, "qualtrics_faculty_responses_sparse_10.csv", sparse=True)
     write_faculty_unmatched_sample(faculty)
+    full_student_path = write_student_sample(
+        full_faculty,
+        "qualtrics_student_responses_full_60.csv",
+        limited=False,
+        students=_full_student_names(60),
+        seed=31,
+    )
+    full_faculty_path = write_faculty_sample(
+        full_faculty,
+        "qualtrics_faculty_responses_full_22.csv",
+        sparse=False,
+    )
+    write_full_scheduler_samples(full_student_path, full_faculty_path)
     print("wrote Qualtrics sample CSVs to sample_data/")
 
 
-def write_student_sample(faculty, filename, limited):
+def write_student_sample(faculty, filename, limited, students=None, seed=None):
     rows = [_student_question_row(faculty), _student_import_row(faculty)]
-    rng = random.Random(23 if limited else 19)
-    for i, name in enumerate(STUDENTS, start=1):
-        request = 2 + (i % 4)
+    rng = random.Random(seed if seed is not None else (23 if limited else 19))
+    students = students or STUDENTS
+    for i, name in enumerate(students, start=1):
+        request = 3 + (i % 4)
         ranking = faculty["name"].tolist()
         rng.shuffle(ranking)
         if i <= 5:
@@ -57,6 +89,7 @@ def write_student_sample(faculty, filename, limited):
             day2 = ["Time 2", "Time 3", "Time 1", ""][i % 4]
         rows.append(_student_response_row(i, name, request, faculty, ranking, day1, day2))
     _write(rows, _student_columns(faculty), filename)
+    return os.path.join(OUT, filename)
 
 
 def write_student_edge_sample(faculty):
@@ -82,6 +115,7 @@ def write_faculty_sample(faculty, filename, sparse):
             day2 = "Time 1,Time 2,Time 3"
         rows.append(_faculty_response_row(i, name, day1, day2))
     _write(rows, BASE_COLUMNS + ["Q1", "Q2_1", "Q2_2"], filename)
+    return os.path.join(OUT, filename)
 
 
 def write_faculty_unmatched_sample(faculty):
@@ -92,8 +126,58 @@ def write_faculty_unmatched_sample(faculty):
 
 
 def _student_columns(faculty):
-    rank_cols = [f"Q3_{i + 1}" for i in range(len(faculty))]
+    rank_cols = _rank_columns_for_faculty(faculty)
     return BASE_COLUMNS + ["Q1", "Q2"] + rank_cols + ["Q4_1", "Q4_2"]
+
+
+def _rank_columns_for_faculty(faculty):
+    if faculty["faculty_id"].astype(str).str.startswith("Q3_").all():
+        return faculty["faculty_id"].astype(str).tolist()
+    return [f"Q3_{i + 1}" for i in range(len(faculty))]
+
+
+def _finalized_faculty(roster):
+    area_by_name = {
+        str(r["name"]).strip().lower(): str(r.get("area", "")).strip()
+        for _, r in roster.iterrows()
+    }
+    return pd.DataFrame([
+        {
+            "faculty_id": FINALIZED_Q3_COLUMNS[i],
+            "name": name,
+            "area": area_by_name.get(name.lower(), ""),
+        }
+        for i, name in enumerate(FINALIZED_STUDENT_SURVEY_FACULTY)
+    ])
+
+
+def _full_student_names(n):
+    names = []
+    for i in range(n):
+        first = FULL_STUDENT_FIRST[i % len(FULL_STUDENT_FIRST)]
+        last = FULL_STUDENT_LAST[(i * 7) % len(FULL_STUDENT_LAST)]
+        names.append(f"{first} {last}")
+    return names
+
+
+def write_full_scheduler_samples(student_path, faculty_path):
+    grid = build_grid_from_plans(default_plans(), DEFAULT)
+    students_raw = pd.read_csv(student_path, dtype=str)
+    faculty_raw = pd.read_csv(faculty_path, dtype=str)
+    prefs, _, requests, student_availability, students, faculty, student_warnings = adapt_student_qualtrics(
+        students_raw,
+        ROSTER,
+        grid,
+    )
+    availability, faculty_warnings = adapt_faculty_qualtrics(faculty_raw, faculty, grid)
+    if student_warnings or faculty_warnings:
+        print("warnings while generating full scheduler samples:", student_warnings + faculty_warnings)
+    faculty.to_csv(os.path.join(OUT, "full_scheduler_faculty_22.csv"), index=False)
+    availability.to_csv(os.path.join(OUT, "full_scheduler_availability_22.csv"), index=False)
+    prefs.to_csv(os.path.join(OUT, "full_scheduler_preferences_60.csv"), index=False)
+    requests.to_csv(os.path.join(OUT, "full_scheduler_students_60.csv"), index=False)
+    students.to_csv(os.path.join(OUT, "full_scheduler_student_contacts_60.csv"), index=False)
+    student_availability.to_csv(os.path.join(OUT, "full_scheduler_student_availability_60.csv"), index=False)
 
 
 def _base_question_row():
@@ -148,10 +232,10 @@ def _student_question_row(faculty):
         "Q4_1": "Please pick your time availability - Date 1",
         "Q4_2": "Please pick your time availability - Date 2",
     })
-    for i, name in enumerate(faculty["name"], start=1):
-        row[f"Q3_{i}"] = (
+    for col, (_, faculty_row) in zip(_rank_columns_for_faculty(faculty), faculty.iterrows()):
+        row[col] = (
             "Based on your previous answer: Please rank the desired professor engagements "
-            f"from most favorite to least. - {name}"
+            f"from most favorite to least. - {faculty_row['name']}"
         )
     return row
 
@@ -159,8 +243,9 @@ def _student_question_row(faculty):
 def _student_import_row(faculty):
     row = _base_import_row()
     row.update({"Q1": '{"ImportId":"QID1_TEXT"}', "Q2": '{"ImportId":"QID2"}'})
-    for i in range(1, len(faculty) + 1):
-        row[f"Q3_{i}"] = f'{{"ImportId":"QID3_{i}"}}'
+    for col in _student_columns(faculty):
+        if str(col).startswith("Q3_"):
+            row[col] = f'{{"ImportId":"QID3_{str(col).split("_", 1)[1]}"}}'
     row["Q4_1"] = '{"ImportId":"QID4_1"}'
     row["Q4_2"] = '{"ImportId":"QID4_2"}'
     return row
@@ -173,8 +258,8 @@ def _student_response_row(i, name, request, faculty, ranking, day1, day2, email=
     row["Q1"] = name
     row["Q2"] = request
     rank_lookup = {faculty_name: rank for rank, faculty_name in enumerate(ranking, start=1)}
-    for j, faculty_name in enumerate(faculty["name"], start=1):
-        row[f"Q3_{j}"] = rank_lookup[faculty_name]
+    for col, (_, faculty_row) in zip(_rank_columns_for_faculty(faculty), faculty.iterrows()):
+        row[col] = rank_lookup[faculty_row["name"]]
     row["Q4_1"] = day1
     row["Q4_2"] = day2
     return row

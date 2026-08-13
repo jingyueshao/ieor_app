@@ -20,6 +20,8 @@ Full staff workflow test samples:
 
 Qualtrics workflow test samples:
 
+- `qualtrics_student_responses_full_60.csv`: full-scale 60-student Qualtrics export using all finalized survey faculty.
+- `qualtrics_faculty_responses_full_22.csv`: full-scale 22-faculty Qualtrics export using all finalized survey faculty.
 - `qualtrics_student_responses_balanced_12.csv`: clean 12-student Qualtrics export with broad student availability.
 - `qualtrics_faculty_responses_balanced_10.csv`: clean 10-faculty Qualtrics export with broad faculty availability.
 - `qualtrics_student_responses_limited_12.csv`: student export with tighter time availability to test time constraints.
@@ -29,6 +31,12 @@ Qualtrics workflow test samples:
 
 Scheduler-ready test samples:
 
+- `full_scheduler_faculty_22.csv`
+- `full_scheduler_availability_22.csv`
+- `full_scheduler_preferences_60.csv`
+- `full_scheduler_students_60.csv`
+- `full_scheduler_student_contacts_60.csv`
+- `full_scheduler_student_availability_60.csv`
 - `staff_test_scheduler_faculty_10.csv`
 - `staff_test_scheduler_availability_10.csv`
 - `staff_test_scheduler_preferences_40.csv`
@@ -39,8 +47,8 @@ Recommended testing paths:
 
 1. Semi-automated response upload path:
    - Upload `staff_test_students_40.csv` in tab 3.
-   - Upload `qualtrics_student_responses_balanced_12.csv` as the student response CSV.
-   - Upload `qualtrics_faculty_responses_balanced_10.csv` as the faculty response CSV.
+   - Upload `qualtrics_student_responses_full_60.csv` as the student response CSV for a realistic larger test.
+   - Upload `qualtrics_faculty_responses_full_22.csv` as the faculty response CSV.
    - Use parsed response data in tab 5.
 
 2. Stress-test Qualtrics constraints:
@@ -49,5 +57,6 @@ Recommended testing paths:
    - Build schedules and review warnings/diagnostics.
 
 3. Direct scheduler CSV path:
-   - In tab 5, upload `test_faculty.csv`, `test_availability.csv`, `test_preferences.csv`, and optionally `test_student_requests.csv` and `test_student_availability.csv`.
+   - In tab 5, upload `full_scheduler_faculty_22.csv`, `full_scheduler_availability_22.csv`, `full_scheduler_preferences_60.csv`, `full_scheduler_students_60.csv`, and `full_scheduler_student_availability_60.csv`.
+   - For a smaller direct test, upload `test_faculty.csv`, `test_availability.csv`, `test_preferences.csv`, and optionally `test_student_requests.csv` and `test_student_availability.csv`.
    - The `staff_test_scheduler_*.csv` files are equivalent, more descriptive copies for reviewers browsing the repo.

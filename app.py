@@ -989,20 +989,26 @@ def render_student_intake():
         "to preferences.csv, Q2 to students.csv, and Q4 time blocks to student_availability.csv."
     )
     with st.expander("Download Qualtrics student response samples", expanded=False):
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
+            sample_download(
+                "qualtrics_student_responses_full_60.csv",
+                "Full 60-student sample",
+                key="sample_qualtrics_students_full_download",
+            )
+        with c2:
             sample_download(
                 "qualtrics_student_responses_balanced_12.csv",
                 "Balanced 12-student sample",
                 key="sample_qualtrics_students_balanced_download",
             )
-        with c2:
+        with c3:
             sample_download(
                 "qualtrics_student_responses_limited_12.csv",
                 "Limited availability sample",
                 key="sample_qualtrics_students_limited_download",
             )
-        with c3:
+        with c4:
             sample_download(
                 "qualtrics_student_responses_edge_cases.csv",
                 "Edge-case sample",
@@ -1214,20 +1220,26 @@ def render_faculty_intake():
         "Time 1/2/3 blocks into solver-ready availability.csv rows."
     )
     with st.expander("Download Qualtrics faculty response samples", expanded=False):
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
+            sample_download(
+                "qualtrics_faculty_responses_full_22.csv",
+                "Full 22-faculty sample",
+                key="sample_qualtrics_faculty_full_download",
+            )
+        with c2:
             sample_download(
                 "qualtrics_faculty_responses_balanced_10.csv",
                 "Balanced 10-faculty sample",
                 key="sample_qualtrics_faculty_balanced_download",
             )
-        with c2:
+        with c3:
             sample_download(
                 "qualtrics_faculty_responses_sparse_10.csv",
                 "Sparse availability sample",
                 key="sample_qualtrics_faculty_sparse_download",
             )
-        with c3:
+        with c4:
             sample_download(
                 "qualtrics_faculty_responses_edge_cases.csv",
                 "Edge-case sample",
@@ -1431,6 +1443,22 @@ def render_matching():
                     "test_student_availability.csv",
                     "student_availability.csv sample",
                     key="build_sample_student_availability_download",
+                )
+            st.markdown("**Full-scale scheduler CSV samples**")
+            f1, f2, f3, f4, f5 = st.columns(5)
+            with f1:
+                sample_download("full_scheduler_faculty_22.csv", "full faculty.csv", key="build_full_faculty_download")
+            with f2:
+                sample_download("full_scheduler_availability_22.csv", "full availability.csv", key="build_full_availability_download")
+            with f3:
+                sample_download("full_scheduler_preferences_60.csv", "full preferences.csv", key="build_full_preferences_download")
+            with f4:
+                sample_download("full_scheduler_students_60.csv", "full students.csv", key="build_full_students_download")
+            with f5:
+                sample_download(
+                    "full_scheduler_student_availability_60.csv",
+                    "full student_availability.csv",
+                    key="build_full_student_availability_download",
                 )
         fac_f = st.file_uploader("faculty.csv", type="csv", key="build_faculty_csv")
         avail_f = st.file_uploader("availability.csv", type="csv", key="build_availability_csv")
